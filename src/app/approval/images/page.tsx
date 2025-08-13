@@ -78,104 +78,97 @@ export default function ImageApprovalPage() {
 
     // Toplu Onay/Red Fonksiyonu
     const handleProcessUserPhotos = async (userId: string, photos: PendingPhoto[]) => {
-        if (processingId) return;
-        setProcessingId(userId);
+    if (processingId) return;
+    setProcessingId(userId);
 
-        const batch = writeBatch(db);
-        const userDocRef = doc(db, 'users', userId);
+    const batch = writeBatch(db);
+    const userDocRef = doc(db, 'users', userId);
+
+    try {
+        const userDocSnap = await getDoc(userDocRef);
+        if (!userDocSnap.exists()) throw new Error("Kullanıcı bulunamadı!");
+        
+        let currentUserData = userDocSnap.data();
+        let primaryPhotoUrl = currentUserData.photoUrl || "";
+        
+        const photosToApprove: string[] = [];
+        const photosToReject: PendingPhoto[] = [];
+
+        photos.forEach(photo => {
+            if (rejectedPhotoIds.has(photo.id)) {
+                photosToReject.push(photo);
+            } else {
+                photosToApprove.push(photo.pendingPhotoUrl);
+            }
+        });
+        
+        const finalOtherPhotos = [...(currentUserData.otherPhotoUrls || [])];
+        photosToApprove.forEach(url => {
+            if (!primaryPhotoUrl) primaryPhotoUrl = url;
+            else finalOtherPhotos.push(url);
+        });
+        
+        batch.update(userDocRef, { photoUrl: primaryPhotoUrl, otherPhotoUrls: finalOtherPhotos });
+
+        photos.forEach(photo => {
+            const pendingDocRef = doc(db, 'pending_photos', photo.id);
+            batch.delete(pendingDocRef);
+        });
+
+        const rejectionPromises = photosToReject.map(photo => {
+            const storageRef = ref(storage, photo.pendingPhotoUrl);
+            return deleteObject(storageRef);
+        });
+        await Promise.all([batch.commit(), ...rejectionPromises]);
+        
+
 
         try {
-            const userDocSnap = await getDoc(userDocRef);
-            if (!userDocSnap.exists()) throw new Error("Kullanıcı bulunamadı!");
+            let title = '';
+            let body = '';
             
-            let currentUserData = userDocSnap.data();
-            let primaryPhotoUrl = currentUserData.photoUrl || "";
-            
-            const photosToApprove: string[] = [];
-            const photosToReject: PendingPhoto[] = [];
-
-            photos.forEach(photo => {
-                if (rejectedPhotoIds.has(photo.id)) {
-                    photosToReject.push(photo);
-                } else {
-                    photosToApprove.push(photo.pendingPhotoUrl);
-                }
-            });
-            
-            const finalOtherPhotos = [...(currentUserData.otherPhotoUrls || [])];
-            photosToApprove.forEach(url => {
-                if (!primaryPhotoUrl) primaryPhotoUrl = url;
-                else finalOtherPhotos.push(url);
-            });
-            
-            batch.update(userDocRef, { photoUrl: primaryPhotoUrl, otherPhotoUrls: finalOtherPhotos });
-
-            photos.forEach(photo => {
-                const pendingDocRef = doc(db, 'pending_photos', photo.id);
-                batch.delete(pendingDocRef);
-            });
-
-            const rejectionPromises = photosToReject.map(photo => {
-                const storageRef = ref(storage, photo.pendingPhotoUrl);
-                return deleteObject(storageRef);
-            });
-
-            await Promise.all([batch.commit(), ...rejectionPromises]);
-            
-            const notificationMessage = `${photosToApprove.length} fotoğraf onaylandı, ${photosToReject.length} fotoğraf reddedildi.`;
-            const notificationDocRef = doc(collection(db, `users/${userId}/notifications`));
-            await setDoc(notificationDocRef, { message: notificationMessage, type: "photo_review_completed", read: false, timestamp: Timestamp.now() });
-
-            try {
-                let title = '';
-                let body = '';
-                // Kullanıcıya gidecek bildirimi daha seksi ve detaylı hale getiriyoruz
-                if (photosToApprove.length > 0 && photosToReject.length > 0) {
-                    title = 'Fotoğrafların incelendi! ✅❌';
-                    body = `${photosToApprove.length} fotoğrafın onaylandı, ama ${photosToReject.length} tanesi kurallara uymadığı için reddedildi.`;
-                } else if (photosToApprove.length > 0) {
-                    title = 'Harika haber! Fotoğrafların onaylandı! ✅';
-                    body = `Gönderdiğin ${photosToApprove.length} fotoğrafın da profilinde yayınlandı. Harika görünüyorsun!`;
-                } else if (photosToReject.length > 0) {
-                    title = 'Fotoğrafların reddedildi ❌';
-                    body = `Gönderdiğin ${photosToReject.length} fotoğraf maalesef kurallarımıza uymadığı için reddedildi.`;
-                }
-
-                if (title && body) {
-                    
-                    await fetch('/api/send-notification', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            userId: userId,
-                            title: title,
-                            body: body,
-                            senderPhotoUrl: null, 
-                            imageUrl: null
-                            
-                        }),
-                    });
-                }
-            } catch (error) {
-                console.error("API'ye fotoğraf onay bildirimi gönderilirken hata oluştu:", error);
+            if (photosToApprove.length > 0 && photosToReject.length > 0) {
+                title = 'Fotoğrafların incelendi! ✅❌';
+                body = `${photosToApprove.length} fotoğrafın onaylandı, ama ${photosToReject.length} tanesi kurallara uymadığı için reddedildi.`;
+            } else if (photosToApprove.length > 0) {
+                title = 'Harika haber! Fotoğrafların onaylandı! ✅';
+                body = `Gönderdiğin ${photosToApprove.length} fotoğrafın da profilinde yayınlandı. Harika görünüyorsun!`;
+            } else if (photosToReject.length > 0) {
+                title = 'Fotoğrafların reddedildi ❌';
+                body = `Gönderdiğin ${photosToReject.length} fotoğraf maalesef kurallarımıza uymadığı için reddedildi.`;
             }
-            
 
-            console.log(`Kullanıcı ${userId} için işlemler tamamlandı.`);
-            setRejectedPhotoIds(prev => {
-                const newSet = new Set(prev);
-                photos.forEach(p => newSet.delete(p.id));
-                return newSet;
-            });
-
+            if (title && body) {
+                await fetch('/api/send-system-notification', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: userId,
+                        title: title,
+                        body: body,
+                        notificationType: 'PHOTO_APPROVAL',
+                        actionTargetId: userId
+                    }),
+                });
+            }
         } catch (error) {
-            console.error("Fotoğraflar işlenirken hata:", error); alert("İşlem sırasında bir hata oluştu.");
-        } finally {
-            setProcessingId(null);
+            console.error("API'ye fotoğraf onay bildirimi gönderilirken hata oluştu:", error);
         }
-    };
+        
+        console.log(`Kullanıcı ${userId} için işlemler tamamlandı.`);
+        setRejectedPhotoIds(prev => {
+            const newSet = new Set(prev);
+            photos.forEach(p => newSet.delete(p.id));
+            return newSet;
+        });
+
+    } catch (error) {
+        console.error("Fotoğraflar işlenirken hata:", error); 
+        alert("İşlem sırasında bir hata oluştu.");
+    } finally {
+        setProcessingId(null);
+    }
+};
 
     return (
         <>

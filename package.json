@@ -11,10 +11,14 @@
   "dependencies": {
     "@radix-ui/react-tooltip": "^1.2.7",
     "@types/react-window": "^1.8.8",
+    "axios": "^1.11.0",
+    "clsx": "^2.1.1",
+    "downshift": "^9.0.10",
     "emoji-picker-react": "^4.13.2",
     "firebase": "^12.0.0",
     "firebase-admin": "^13.4.0",
     "framer-motion": "^12.23.12",
+    "google-auth-library": "^10.2.1",
     "lucide-react": "^0.534.0",
     "next": "15.4.4",
     "react": "19.1.0",
@@ -22,7 +26,8 @@
     "react-dropzone": "^14.3.8",
     "react-icons": "^5.5.0",
     "react-virtualized-auto-sizer": "^1.0.26",
-    "react-window": "^1.8.11"
+    "react-window": "^1.8.11",
+    "recharts": "^3.1.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

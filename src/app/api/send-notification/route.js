@@ -1,29 +1,31 @@
 // app/api/send-notification/route.js
 
-import { sendNotificationToUser } from '@/lib/notificationHelper';
 import { NextResponse } from 'next/server';
+import { sendStandardizedChatMessageNotification } from '@/lib/notificationServerLogic'; 
 
-export async function POST(req) { // veya req: NextRequest
+export async function POST(req) {
   try {
-    // 1. Gelen isteğin içeriğini bir görelim
-    const bodyPayload = await req.json();
+   
+    const { userId, title, body, chatPartnerId, senderPhotoUrl, imageUrl } = await req.json();
+
     
-
-    const { userId, title, body, senderPhotoUrl, imageUrl, chatPartnerId  } = bodyPayload;
-
-    // 2. Parametreleri doğru alabilmiş miyiz, bir kontrol edelim
-  
-
-    if (!userId || !title || !body) {
-     
-      return NextResponse.json({ message: 'Eksik parametreler' }, { status: 400 });
+    if (!userId || !title || !body || !chatPartnerId) {
+      return NextResponse.json({ message: 'Eksik parametreler: userId, title, body, chatPartnerId gerekli.' }, { status: 400 });
     }
 
-    // 3. Yardımcı fonksiyona göndermeden hemen önce son bir kontrol
     
-    await sendNotificationToUser(userId, title, body, senderPhotoUrl, imageUrl, chatPartnerId );
+    await sendStandardizedChatMessageNotification(
+      userId,
+      title.split(' sana yeni bir mesaj gönderdi!')[0] || "Biri", 
+      body,
+      chatPartnerId,
+      senderPhotoUrl, 
+      imageUrl        
+    );
+    
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
+    console.error("send-notification API hatası:", error);
     return NextResponse.json({ success: false, message: 'Sunucu hatası.' }, { status: 500 });
   }
 }

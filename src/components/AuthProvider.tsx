@@ -11,6 +11,7 @@ import { Loader2 } from 'lucide-react';
 // Artık sadece Firebase kullanıcısını değil, rollerini ve izinlerini de tutuyoruz.
 interface AppUser {
   firebaseUser: FirebaseUser;
+  customClaims?: { [key: string]: any };
   role: 'moderator' | 'superadmin' | null;
   permissions: { [key: string]: boolean };
 }

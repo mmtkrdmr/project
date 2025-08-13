@@ -1,18 +1,25 @@
-// src/lib/firebaseAdmin.js
 import admin from 'firebase-admin';
 
+// Projenin ana dizinindeki serviceAccountKey.json dosyasını import ediyoruz.
+// '..' iki nokta, bir üst klasöre çık demektir.
+// src/lib/ -> src/ -> / (ana dizin)
+import serviceAccount from '../../serviceAccountKey.json';
+
+// Bu kontrol, Next.js'in geliştirme modunda (hot reload)
+// sürekli yeni uygulama başlatmasını engelleyerek hatayı önler.
 if (!admin.apps.length) {
   try {
-    // Ortam değişkeninden JSON verisini alıyoruz
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      // credential'ı import ettiğimiz serviceAccount nesnesi ile ayarlıyoruz.
+      credential: admin.credential.cert(serviceAccount)
     });
-    console.log('Firebase Admin SDK başarıyla bağlandı.');
   } catch (error) {
-    console.error('Firebase Admin SDK bağlanırken bir hata oluştu:', error);
+    
   }
 }
 
-export { admin };
+// Kolay kullanım için başlatılmış admin nesnesini ve diğer servisleri dışa aktaralım.
+const db = admin.firestore();
+const messaging = admin.messaging();
+
+export { admin, db, messaging };

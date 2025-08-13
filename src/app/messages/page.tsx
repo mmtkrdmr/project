@@ -6,13 +6,13 @@ import { db, storage } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { EmojiClickData } from 'emoji-picker-react';
-import { MessageSquare, Send, Users, Search, Smile, Paperclip, X, AlertTriangle, Phone, Video, Mic, Image as ImageIcon, CheckCircle } from 'lucide-react';
 
+import { MessageSquare, Send, Users, Search, Smile, Paperclip, X, AlertTriangle, Phone, Video, Mic, Image as ImageIcon, CheckCircle } from 'lucide-react';
+import { useSettings } from '@/context/SettingsContext';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 import NotesSection from './NotesSection';
-
+import { EmojiClickData, Theme } from 'emoji-picker-react'; // <-- Theme'i buraya ekle
 // ARAYÜZLER
 interface PendingConversation { 
     id: string; 
@@ -82,6 +82,68 @@ const ConversationPreview = ({ message, type, }: { message?: string; type?: stri
         </div>
     );
 };
+
+const MessageContentWithBlur = ({ msg }: { msg: Message }) => {
+    const { settings } = useSettings(); // Duyuru panosuna bak
+    const [isUnblurred, setIsUnblurred] = useState(false); // Bu resim tıklandı mı?
+
+    // Resim blurlu gösterilmeli mi?
+    const shouldBeBlurred = settings.blurMedia && !isUnblurred;
+
+    const handleMediaClick = () => {
+        if (shouldBeBlurred) {
+            setIsUnblurred(true); // Sadece blur'u kaldır
+        } else if (msg.mediaUrl) {
+            window.open(msg.mediaUrl, '_blank'); // Blur yoksa yeni sekmede aç
+        }
+    };
+
+    const textContent = msg.message ? <p className="leading-relaxed px-4 py-2">{msg.message}</p> : null;
+    const mediaContent = (() => {
+        if (!msg.mediaUrl) return null;
+
+        const blurClasses = shouldBeBlurred ? 'blur-2xl' : 'blur-none';
+        const transitionClasses = 'transition-all duration-300 ease-in-out';
+
+        switch (msg.type) {
+            case 'image':
+                return (
+                    <div className="relative cursor-pointer" onClick={handleMediaClick}>
+                        <Image
+                            src={msg.mediaUrl}
+                            alt="Gönderilen resim"
+                            width={250}
+                            height={250}
+                            className={`rounded-lg object-cover ${blurClasses} ${transitionClasses}`}
+                        />
+                    </div>
+                );
+            case 'video':
+                return (
+                     <div className="relative w-full max-w-xs cursor-pointer" onClick={handleMediaClick}>
+                        <video
+                            controls={!shouldBeBlurred}
+                            src={msg.mediaUrl}
+                            className={`rounded-lg w-full ${blurClasses} ${transitionClasses}`}
+                        />
+                        {shouldBeBlurred && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 rounded-lg pointer-events-none">
+                                <Video className="w-10 h-10 text-white opacity-70" />
+                            </div>
+                        )}
+                    </div>
+                );
+            case 'voice':
+                return <audio controls src={msg.mediaUrl} className="w-64 h-12 p-2">Tarayıcınız desteklemiyor.</audio>;
+            default:
+                return null;
+        }
+    })();
+
+    if (textContent && mediaContent) { return <div className="space-y-2">{mediaContent}{textContent}</div>; }
+    return mediaContent || textContent || <p className="leading-relaxed px-4 py-2 text-gray-500 italic">[Boş Mesaj]</p>;
+};
+
 
 // ANA SAYFA BİLEŞENİ
 export default function MessagesPage() {
@@ -164,36 +226,56 @@ export default function MessagesPage() {
     };
 
     const handleSendCall = async (callType: 'voice' | 'video') => {
-        if (!selectedConversation) { alert("Arama göndermek için bir sohbet seçili olmalıdır."); return; }
-        const callerProfile = userInfo.ghost;
-        const targetUser = userInfo.original;
-        if (!callerProfile || !targetUser) { alert("Kullanıcı bilgileri tam yüklenemedi. Lütfen bekleyin."); return; }
-        const callData = {
-            callerId: callerProfile.id,
-            callerName: callerProfile.name || "Bilinmeyen",
-            callerPhotoUrl: callerProfile.photoUrl || "",
-            callTime: serverTimestamp(),
-            callType: callType
-        };
-        try {
-            const userDocRef = doc(db, 'users', targetUser.id);
-            await updateDoc(userDocRef, { incomingCall: callData });
-            
-            const notificationMessage = `${callType === 'video' ? 'Görüntülü' : 'Sesli'} arama isteği gönderildi.`;
-            setCallNotification(notificationMessage);
+    if (!selectedConversation) { alert("Arama göndermek için bir sohbet seçili olmalıdır."); return; }
+    const callerProfile = userInfo.ghost;
+    const targetUser = userInfo.original;
+    if (!callerProfile || !targetUser) { alert("Kullanıcı bilgileri tam yüklenemedi. Lütfen bekleyin."); return; }
 
-            if (notificationTimerRef.current) {
-                clearTimeout(notificationTimerRef.current);
-            }
-            notificationTimerRef.current = setTimeout(() => {
-                setCallNotification(null);
-            }, 3000);
-
-        } catch (error) {
-            console.error("Arama gönderilirken hata:", error);
-            alert("Arama gönderilirken bir hata oluştu.");
-        }
+    const callData = {
+        callerId: callerProfile.id,
+        callerName: callerProfile.name || "Bilinmeyen",
+        callerPhotoUrl: callerProfile.photoUrl || "",
+        callTime: serverTimestamp(),
+        callType: callType
     };
+
+    try {
+        // 1. Kullanıcının 'incomingCall' alanını güncelle (Bu zaten vardı)
+        const userDocRef = doc(db, 'users', targetUser.id);
+        await updateDoc(userDocRef, { incomingCall: callData });
+        
+        // Panelde "gönderildi" mesajını göster (Bu zaten vardı)
+        const notificationMessage = `${callType === 'video' ? 'Görüntülü' : 'Sesli'} arama isteği gönderildi.`;
+        setCallNotification(notificationMessage);
+
+   
+        await fetch('/api/send-notification', { // Tekli bildirim API'ını kullanıyoruz
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: targetUser.id, // Sadece tek bir kullanıcıya
+                title: `${callType === 'video' ? '📹  Görüntülü' : '📞  Sesli'} Arama`,
+                body: ` ${callerProfile.name} seni ${callType === 'video' ? 'görüntülü' : 'sesli'} arıyor!`,
+                senderPhotoUrl: callerProfile.photoUrl || '',
+                notificationType: 'INCOMING_CALL', // Bildirim tipini belirtiyoruz
+                chatPartnerId: callerProfile.id  // Tıklandığında doğru profili açması için
+            }),
+        });
+        console.log("Arama bildirim isteği API'ye başarıyla gönderildi.");
+        // --- YENİ EKLENEN KISIM SONU ---
+
+        if (notificationTimerRef.current) {
+            clearTimeout(notificationTimerRef.current);
+        }
+        notificationTimerRef.current = setTimeout(() => {
+            setCallNotification(null);
+        }, 3000);
+
+    } catch (error) {
+        console.error("Arama veya bildirim gönderilirken hata:", error);
+        alert("Arama gönderilirken bir hata oluştu.");
+    }
+};
 
     useEffect(() => {
         const unlockOnUnload = () => {
@@ -208,82 +290,79 @@ export default function MessagesPage() {
         };
     }, []);
 
-     const handleSendMessage = async (content: { text?: string; type: Message['type']; mediaUrl?: string }) => {
-        if (!user?.firebaseUser?.uid || !selectedConversation) return;
-        const conversationIdToDelete = selectedConversation.id;
-        const senderId = selectedConversation.ghostUserId; 
+      const handleSendMessage = async (content: { text?: string; type: Message['type']; mediaUrl?: string }) => {
+    if (!user?.firebaseUser?.uid || !selectedConversation) return;
+
+    const conversationIdToDelete = selectedConversation.id;
+    const senderId = selectedConversation.ghostUserId; 
+    
+    // <-- YENİ: İşlemi yapan admin'in kimliğini bir değişkene atıyoruz
+    const adminId = user.firebaseUser.uid;
+
+    try {
+        const messageData: any = { 
+            chatId: conversationIdToDelete, 
+            senderId: senderId,
+            // --- YENİ EKLENEN SATIR ---
+            // Gönderen ghost profilin fotoğraf URL'sini mesaja ekliyoruz.
+            senderPhotoUrl: selectedConversation.ghostUserPhotoUrl || '', 
+            // --- YENİ SATIR SONU ---
+            receiverId: selectedConversation.originalSenderId, 
+            timestamp: Timestamp.now(), 
+            type: content.type,
+};
+        if (content.text) messageData.message = content.text;
+        if (content.mediaUrl) messageData.mediaUrl = content.mediaUrl;
+        
+        const pendingDocRef = doc(db, 'pending_chats', conversationIdToDelete);
+        
+        // Promise.all'a üçüncü bir işlem ekliyoruz
+        await Promise.all([
+            // 1. Ana 'messages' koleksiyonuna ekle (Mevcut yapı)
+            addDoc(collection(db, 'messages'), messageData),
+            
+            // 2. Bekleyen sohbeti sil (Mevcut yapı)
+            deleteDoc(pendingDocRef),
+
+            // 3. <-- YENİ: Admin'in kendi 'chats' koleksiyonuna da aynı mesajı ekle
+            addDoc(collection(db, 'admins', adminId, 'chats'), messageData)
+        ]);
+        
+        activeLockIdRef.current = null;
+
+        // Bildirim gönderme kısmı aynı şekilde çalışmaya devam ediyor
         try {
-            const messageData: any = { 
-                chatId: conversationIdToDelete, 
-                senderId: senderId,
-                receiverId: selectedConversation.originalSenderId, 
-                timestamp: Timestamp.now(), 
-                type: content.type 
-            };
-            if (content.text) messageData.message = content.text;
-            if (content.mediaUrl) messageData.mediaUrl = content.mediaUrl;
-            
-            const pendingDocRef = doc(db, 'pending_chats', conversationIdToDelete);
-            
-            // ... handleSendMessage fonksiyonunun içi
+            const recipientUserId = selectedConversation.originalSenderId;
+            const senderName = selectedConversation.ghostUserName || 'Biri';
+            let notificationBody = '';
+            if (content.type === 'text' && content.text) {
+                notificationBody = content.text.length > 100 ? content.text.substring(0, 97) + '...' : content.text;
+            } else {
+                const typeLabels = { 'image': 'bir fotoğraf gönderdi', 'video': 'bir video gönderdi', 'voice': 'bir sesli mesaj gönderdi', 'gift': 'bir hediye gönderdi', 'song': 'bir şarkı gönderdi'};
+                notificationBody = typeLabels[content.type as keyof typeof typeLabels] || 'yeni bir mesaj gönderdi';
+            }
 
-            await Promise.all([
-                addDoc(collection(db, 'messages'), messageData),
-                deleteDoc(pendingDocRef)
-            ]);
-            
-            activeLockIdRef.current = null;
-            try {
-                const recipientUserId = selectedConversation.originalSenderId;
-                
-                // Mesajı gönderen kişi (yönetilen ghost profil)
-                // Bildirim başlığında onun adını kullanacağız
-                const senderName = selectedConversation.ghostUserName || 'Biri';
-
-                // Bildirim içeriğini hazırlıyoruz
-                let notificationBody = '';
-                if (content.type === 'text' && content.text) {
-                    // Eğer mesaj çok uzunsa, ilk 100 karakterini alalım ki bildirim ekranına sığsın
-                    notificationBody = content.text.length > 100 ? content.text.substring(0, 97) + '...' : content.text;
-                } else {
-                    // Medya mesajları için standart metinler
-                    const typeLabels = { 
-                        'image': 'bir fotoğraf gönderdi', 
-                        'video': 'bir video gönderdi', 
-                        'voice': 'bir sesli mesaj gönderdi', 
-                        'gift': 'bir hediye gönderdi', 
-                        'song': 'bir şarkı gönderdi'
-                    };
-                    notificationBody = typeLabels[content.type as keyof typeof typeLabels] || 'yeni bir mesaj gönderdi';
-                }
-
-                // YENİ AÇTIĞIMIZ API KAPISINI ÇALIYORUZ
-                console.log(`Bildirim gönderiliyor: Kime=${recipientUserId}, Kimden=${senderName}`);
-                await fetch('/api/send-notification', {
+            console.log(`Bildirim gönderiliyor: Kime=${recipientUserId}, Kimden=${senderName}`);
+            await fetch('/api/send-notification', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                userId: recipientUserId,
-                title: `${senderName} sana yeni bir mesaj gönderdi!`,
-                body: notificationBody,
-                senderPhotoUrl: selectedConversation.ghostUserPhotoUrl || '',
-                imageUrl: content.type === 'image' ? content.mediaUrl : null,
-              
-                chatPartnerId: selectedConversation.ghostUserId 
-}),
+                    userId: recipientUserId,
+                    title: `${senderName} sana yeni bir mesaj gönderdi!`,
+                    body: notificationBody,
+                    senderPhotoUrl: selectedConversation.ghostUserPhotoUrl || '',
+                    imageUrl: content.type === 'image' ? content.mediaUrl : null,
+                    chatPartnerId: selectedConversation.ghostUserId 
+                }),
             });
             console.log("Bildirim isteği API'ye başarıyla gönderildi.");
-            } catch (error) {
-                // Bu hata, sadece fetch işlemi başarısız olursa çalışır. 
-                // Asıl bildirim gönderme hatası sunucu loglarında görünür.
-                console.error("API'ye bildirim isteği gönderilirken bir frontend hatası oluştu:", error);
-            }
         } catch (error) {
-            console.error("Mesaj gönderme veya sohbet silme hatası:", error);
+            console.error("API'ye bildirim isteği gönderilirken bir frontend hatası oluştu:", error);
         }
-    };
+    } catch (error) {
+        console.error("Mesaj gönderme veya sohbet silme hatası:", error);
+    }
+};
 
     useEffect(() => { if (!selectedConversation) { setUserInfo({ ghost: null, original: null }); setMessages([]); return; } setLoadingMessages(true); const messagesQuery = query(collection(db, 'messages'), where('chatId', '==', selectedConversation.id), orderBy('timestamp', 'asc')); const messagesUnsubscribe = onSnapshot(messagesQuery, (snapshot) => { setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message))); setLoadingMessages(false); }); const fetchUserInfos = async () => { setLoadingUserInfo(true); try { const originalDocRef = doc(db, 'users', selectedConversation.originalSenderId); const originalDocSnap = await getDoc(originalDocRef); const originalData = originalDocSnap.exists() ? { id: originalDocSnap.id, ...originalDocSnap.data() } as UserProfile : null; const ghostDocRef = doc(db, 'profiles', selectedConversation.ghostUserId); const ghostDocSnap = await getDoc(ghostDocRef); const ghostData = ghostDocSnap.exists() ? { id: ghostDocSnap.id, ...ghostDocSnap.data() } as UserProfile : null; setUserInfo({ original: originalData, ghost: ghostData }); } catch (error) { console.error("Kullanıcı profilleri çekilirken hata oluştu:", error); } setLoadingUserInfo(false); }; fetchUserInfos(); return () => messagesUnsubscribe(); }, [selectedConversation]);
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -305,20 +384,6 @@ export default function MessagesPage() {
     const formatShortTime = (timestamp: Timestamp | null) => { if (!timestamp) return ''; return new Date(timestamp.seconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); };
     const formatFullDateTime = (timestamp: Timestamp | null) => { if (!timestamp) return ''; return new Date(timestamp.seconds * 1000).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + new Date(timestamp.seconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); };
     
-    const renderMessageContent = (msg: Message) => {
-        const textContent = msg.message ? <p className="leading-relaxed px-4 py-2">{msg.message}</p> : null;
-        const mediaContent = (() => {
-            if (!msg.mediaUrl) return null;
-            switch (msg.type) {
-                case 'image': return <Image src={msg.mediaUrl} alt="Gönderilen resim" width={250} height={250} className="rounded-lg object-cover cursor-pointer" onClick={() => window.open(msg.mediaUrl, '_blank')}/>;
-                case 'voice': return <audio controls src={msg.mediaUrl} className="w-64 h-12 p-2">Tarayıcınız desteklemiyor.</audio>;
-                case 'video': return <video controls src={msg.mediaUrl} className="rounded-lg w-full max-w-xs" />;
-                default: return null;
-            }
-        })();
-        if (textContent && mediaContent) { return ( <div className="space-y-2">{mediaContent}{textContent}</div> ); }
-        return mediaContent || textContent || <p className="leading-relaxed px-4 py-2 text-gray-500 italic">[Boş Mesaj]</p>;
-    };
     
     return (
         <div className="w-full h-full flex items-center justify-center p-4 md:p-8">
@@ -402,25 +467,58 @@ export default function MessagesPage() {
                                     </div>
                                 </header>
                                 <div className="flex-1 p-6 overflow-y-auto space-y-4 custom-scrollbar">
-                                    {loadingMessages ? <p className='text-center text-gray-400'>Yükleniyor...</p> : messages.map((msg) => { 
-                                        const isSenderGhost = msg.senderId === selectedConversation.ghostUserId; 
-                                        const profile = isSenderGhost ? userInfo.ghost : userInfo.original; 
+                                    {loadingMessages ? <p className='text-center text-gray-400'>Yükleniyor...</p> : messages.map((msg) => {
+                                        const isSenderGhost = msg.senderId === selectedConversation.ghostUserId;
+                                        const profile = isSenderGhost ? userInfo.ghost : userInfo.original;
+                                        
                                         return (
-                                        <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex items-end gap-3 ${isSenderGhost ? 'justify-end' : 'justify-start'}`}>
-                                            {!isSenderGhost && <Image src={profile?.photoUrl || '/default-avatar.png'} alt="" width={28} height={28} className={`self-start rounded-full object-cover flex-shrink-0 ${profile?.isPremium ? 'ring-2 ring-amber-400' : ''}`}/>}
-                                            <div className="flex flex-col">
-                                                <div className={`rounded-xl max-w-lg ${isSenderGhost ? 'bg-violet-700 text-white rounded-br-none' : 'bg-[#2F3051] text-gray-200 rounded-bl-none'} ${msg.type !== 'text' || !msg.message ? 'p-0 overflow-hidden' : ''}`}>
-                                                    {renderMessageContent(msg)}
+                                            <motion.div
+                                            key={msg.id}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            // items-end: İçindeki tüm elemanları dikey olarak en alta hizala.
+                                            className={`flex items-end gap-3 w-full ${isSenderGhost ? 'justify-end' : 'justify-start'}`}
+                                        >
+                                            {/* GERÇEK KULLANICI AVATARI (SOL) */}
+                                            {!isSenderGhost && (
+                                                <div className={`relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ${profile?.isPremium ? 'ring-2 ring-offset-2 ring-offset-gray-800 ring-amber-400' : ''}`}>
+                                                    <Image
+                                                        src={profile?.photoUrl || '/default-avatar.png'}
+                                                        alt={profile?.name || ''}
+                                                        fill
+                                                        className="object-cover"
+                                                    />
                                                 </div>
-                                                <span className={`text-xs text-gray-500 mt-1 px-1 ${isSenderGhost ? 'self-end' : 'self-start'}`}>{formatFullDateTime(msg.timestamp)}</span>
+                                            )}
+
+                                            {/* MESAJ BALONU VE ZAMAN DAMGASI */}
+                                            <div className={`flex flex-col ${isSenderGhost ? 'items-end' : 'items-start'}`}>
+                                                <div className={`rounded-xl max-w-lg ${isSenderGhost ? 'bg-violet-700 text-white rounded-br-none' : 'bg-[#2F3051] text-gray-200 rounded-bl-none'} ${msg.type !== 'text' || !msg.message ? 'p-0 overflow-hidden' : ''}`}>
+                                                    <div className="break-words">
+                                                        <MessageContentWithBlur msg={msg} />
+                                                    </div>
+                                                </div>
+                                                <span className="text-xs text-gray-500 mt-1 px-1">{formatFullDateTime(msg.timestamp)}</span>
                                             </div>
+
+                                            {/* GHOST PROFİL AVATARI (SAĞ) */}
+                                            {isSenderGhost && (
+                                                <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+                                                    <Image
+                                                        src={profile?.photoUrl || '/default-avatar.png'}
+                                                        alt={profile?.name || ''}
+                                                        fill
+                                                        className="object-cover"
+                                                    />
+                                                </div>
+                                            )}
                                         </motion.div>
-                                        ); 
+                                        );
                                     })}
                                     <div ref={messagesEndRef} />
                                 </div>
                                 <div className="p-4 bg-[#23243D]/80 backdrop-blur-sm relative">
-                                    <AnimatePresence>{showEmojiPicker && (<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="absolute bottom-20 right-0 z-10"><EmojiPicker onEmojiClick={onEmojiClick} theme="dark" /></motion.div>)}</AnimatePresence>
+                                    <AnimatePresence>{showEmojiPicker && (<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="absolute bottom-20 right-0 z-10"><EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} /></motion.div>)}</AnimatePresence>
                                     <div className="relative">
                                         {isUploading && ( <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full z-10"> <p className="text-white font-semibold">Yükleniyor...</p> </div> )}
                                         {selectedFile && previewUrl ? (
@@ -451,21 +549,24 @@ export default function MessagesPage() {
                 </div>
 
                 {/* SAĞ SÜTUN */}
-                <AnimatePresence>
-                    {selectedConversation && (
-                        <motion.div 
-                            initial={{ x: '100%' }} 
-                            animate={{ x: 0 }} 
-                            exit={{ x: '100%' }} 
-                            transition={{ type: 'spring', stiffness: 300, damping: 30 }} 
-                            className="w-[280px] bg-[#2a2b47]/80 backdrop-blur-sm border-l border-violet-500/20 flex-shrink-0 p-4 overflow-y-auto space-y-4 custom-scrollbar">
-                            
-                            <UserInfoCard profile={userInfo.original} loading={loadingUserInfo} isOriginalUser={true} />
-                            <UserInfoCard profile={userInfo.ghost} loading={loadingUserInfo} isOriginalUser={false} />
-                            <NotesSection chatId={selectedConversation.id} />
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+
+                        <AnimatePresence>
+                            {selectedConversation && (
+                                <motion.div 
+                                    initial={{ x: '100%' }} 
+                                    animate={{ x: 0 }} 
+                                    exit={{ x: '100%' }} 
+                                    transition={{ type: 'spring', stiffness: 300, damping: 30 }} 
+                                    className="w-[280px] bg-[#2a2b47]/80 backdrop-blur-sm border-l border-violet-500/20 flex-shrink-0 p-4 overflow-y-auto space-y-4 custom-scrollbar">
+                                    
+                                    <UserInfoCard profile={userInfo.original} loading={loadingUserInfo} isOriginalUser={true} />
+                                    <UserInfoCard profile={userInfo.ghost} loading={loadingUserInfo} isOriginalUser={false} />
+                                    <NotesSection 
+                                        chatId={[selectedConversation.ghostUserId, selectedConversation.originalSenderId].sort().join('-')} 
+                                    />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
             </motion.div>
         </div>
     );

@@ -18,10 +18,13 @@ import {
     HiOutlineUserGroup, 
     HiOutlineUserPlus,
     HiOutlineUsers,
-    HiOutlineClock, // Yeni ikon
-    HiOutlinePlusCircle, // Yeni ikon
-    HiOutlineArchiveBox, // Yeni ikon
-    HiOutlineEye // Yeni ikon
+    HiOutlineClock,
+    HiOutlinePlusCircle,
+    HiOutlineArchiveBox,
+    HiOutlineEye,
+    HiOutlineWrench,
+    HiOutlineSparkles, // Başarımlar için ikon
+    HiOutlineUserCircle
 } from "react-icons/hi2";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -31,11 +34,10 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 
-// ##### DEĞİŞİKLİK BURADA: Yeni Kurgu menüsü eklendi #####
 const menuItems = [
   { name: 'Admin Yönetimi', path: '/admins', icon: HiOutlineShieldCheck, permissionId: 'viewAdminYonetimi' },
-
   { name: 'Tekli Mesaj', path: '/tekli-mesaj', icon: HiOutlineChatBubbleLeft, permissionId: 'viewTekliMesaj' },
+  { name: 'Araçlar', path: '/tools', icon: HiOutlineWrench, permissionId: 'viewTekliMesaj' },
   { 
     name: 'Onay Paneli', 
     icon: HiOutlineCheckBadge, 
@@ -45,7 +47,6 @@ const menuItems = [
         { name: 'Hakkında Onay', path: '/approval/about', icon: HiOutlinePencil }
     ]
   },
-  // YENİ EKLENEN BÖLÜM BAŞLANGICI
   {
     name: 'Kurgu',
     icon: HiOutlineClock,
@@ -56,8 +57,6 @@ const menuItems = [
         { name: 'Kurgu Takip', path: '/fiction/follow-fiction', icon: HiOutlineEye }
     ]
   },
-  // YENİ EKLENEN BÖLÜM SONU
-  
   {
     name: 'Profiller',
     icon: HiOutlineUserGroup,
@@ -68,7 +67,6 @@ const menuItems = [
     ]
   },
   { name: 'Kullanıcılar', path: '/users', icon: HiOutlineUsers, permissionId: 'viewKullanicilar' },
-
   { name: 'Mesajlar', path: '/messages', icon: HiOutlineChatBubbleOvalLeftEllipsis, permissionId: 'viewMesajlar' },
 ];
 
@@ -77,7 +75,7 @@ const bottomMenuItems = [
 ];
 
 export default function Sidebar() {
-  const { isSidebarOpen, toggleSidebar, user } = useAuth(); // AuthProvider'dan user'ı al
+  const { isSidebarOpen, toggleSidebar, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [isSignOutModalOpen, setIsSignOutModalOpen] = useState(false);
@@ -169,29 +167,19 @@ export default function Sidebar() {
               <button onClick={toggleSidebar} className="p-2 rounded-md hover:bg-white/10 transition-all">{isSidebarOpen ? <HiArrowLeft className="w-6 h-6 text-white" /> : <HiBars3 className="w-6 h-6 text-white" />}</button>
             </div>
             
-            {/* ##### DEĞİŞİKLİK BURADA BAŞLIYOR ##### */}
             <nav className="flex flex-col gap-3">
               {menuItems
                 .filter(item => {
-                    // Kural 1: Eğer kullanıcı süper admin ise, her şeyi göster.
-                    if (user?.role === 'superadmin') {
-                        return true;
-                    }
-                    // Kural 2: Eğer menü elemanının bir izne ihtiyacı yoksa (herkes görebilir), onu da göster.
-                    if (!item.permissionId) {
-                        return true;
-                    }
-                    // Kural 3: Eğer kullanıcının izinleri varsa VE bu menünün izni true ise göster.
+                    if (user?.role === 'superadmin') return true;
+                    if (!item.permissionId) return true;
                     return user?.permissions?.[item.permissionId] === true;
                 })
                 .map((item, index) => renderItem(item, index))
               }
             </nav>
-            {/* ##### DEĞİŞİKLİK BURADA BİTİYOR ##### */}
           </div>
           <div className="border-t border-white/10 pt-4">
             <nav className="flex flex-col gap-3">
-              {/* ##### AYNI FİLTRELEME AŞAĞIDAKİ MENÜ İÇİN DE YAPILIYOR ##### */}
               {bottomMenuItems
                 .filter(item => {
                     if (user?.role === 'superadmin') return true;
@@ -200,6 +188,22 @@ export default function Sidebar() {
                 })
                 .map(item => renderItem(item, 0))
               }
+
+              {/* "Başarımlar" Butonu Eklendi */}
+              <Link href="/achievements" title="Profilim">
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-medium flex items-center transition-all duration-300 ease-in-out ${
+                    pathname === '/achievements' ? 'bg-gradient-to-r from-purple-700 to-indigo-700 text-white shadow-lg' : 'hover:bg-white/10'
+                  } ${!isSidebarOpen && 'justify-center'}`}
+                >
+                  <HiOutlineUserCircle className={`w-6 h-6 ${pathname === '/achievements' ? 'text-white' : 'text-gray-400'} transition-colors`} />
+                  <span className={`ml-3 whitespace-nowrap text-sm ${!isSidebarOpen ? 'hidden' : ''}`}>
+                    Profilim
+                  </span>
+                </motion.div>
+              </Link>
+              
               <button onClick={() => setIsSignOutModalOpen(true)} className={`px-3 py-2.5 rounded-xl text-sm font-medium flex items-center w-full hover:bg-white/10 transition-all ${!isSidebarOpen && 'justify-center'}`}>
                 <HiOutlineArrowLeftOnRectangle className="w-6 h-6 text-gray-400" />
                 {isSidebarOpen && <span className="ml-3 whitespace-nowrap">Çıkış Yap</span>}
@@ -209,7 +213,6 @@ export default function Sidebar() {
         </motion.aside>
       </Tooltip.Provider>
       
-      {/* Çıkış yapma modal'ında değişiklik yok */}
       {isSignOutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60" onClick={() => setIsSignOutModalOpen(false)}>
           <div className="bg-[#1E1E2F] rounded-lg p-6 w-80 text-white shadow-lg" onClick={e => e.stopPropagation()}>

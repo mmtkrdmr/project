@@ -105,53 +105,39 @@ export default function AboutApprovalPage() {
 
     // 3. Reddetme Fonksiyonu
     const handleReject = async (request: PendingDescription) => {
-        if (processingId) return;
-        setProcessingId(request.id);
+    if (processingId) return;
+    setProcessingId(request.id);
 
-        try {
-            const pendingDocRef = doc(db, 'pending_descriptions', request.id);
-            const notificationDocRef = doc(collection(db, `users/${request.userId}/notifications`));
-            
-            await Promise.all([
-                deleteDoc(pendingDocRef),
-                setDoc(notificationDocRef, {
-                    message: "Hakkında metniniz kurallarımıza uymadığı için reddedildi.",
-                    type: "description_rejected",
-                    read: false,
-                    timestamp: Timestamp.now()
-                })
-            ]);
+    try {
+        // 1. Önce bekleyen isteği veritabanından sil.
+        const pendingDocRef = doc(db, 'pending_descriptions', request.id);
+        await deleteDoc(pendingDocRef);
 
-            console.log(`Açıklama reddedildi: UserID ${request.userId}`);
-            try {
-                await fetch('/api/send-notification', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        userId: request.userId,
-                        title: 'Hakkında metnin reddedildi ❌',
-                        body: 'Yazdığın hakkında metni maalesef topluluk kurallarımıza uymadığı için onaylanmadı.',
-                        senderPhotoUrl: null,
-                        imageUrl: null,
-                        // chatPartnerId GÖNDERMİYORUZ
-                    }),
-                });
-            } catch (error) {
-                console.error("API'ye hakkında red bildirimi gönderilirken hata oluştu:", error);
-            }
-            //---------------------------------------------------------------------
+        // 2. Şimdi SADECE API üzerinden bildirim gönder.
+        // Kayıt işlemini API'ın içindeki systemNotificationSender yapacak.
+        await fetch('/api/send-system-notification', { // YENİ API YOLU
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                userId: request.userId,
+                title: 'Hakkında metnin reddedildi ❌',
+                body: 'Yazdığın hakkında metni maalesef topluluk kurallarımıza uymadığı için onaylanmadı.',
+                notificationType: 'ABOUT_REJECTED', // Özel bildirim tipi
+                actionTargetId: request.userId // Tıklanınca profile gitmesi için
+            }),
+        });
+        
+        console.log(`Açıklama reddedildi: UserID ${request.userId}`);
 
-            console.log(`Açıklama reddedildi: UserID ${request.userId}`);
-
-        } catch (error) {
-            console.error("Açıklama reddedilirken hata:", error);
-            alert("İşlem sırasında bir hata oluştu.");
-        } finally {
-            setProcessingId(null);
-        }
-    };
+    } catch (error) {
+        console.error("Açıklama reddedilirken hata:", error);
+        alert("İşlem sırasında bir hata oluştu.");
+    } finally {
+        setProcessingId(null);
+    }
+};
 
     return (
         <div className="p-4 md:p-8 h-full overflow-y-auto bg-gray-900 text-white custom-scrollbar">
